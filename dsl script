@@ -1,0 +1,20 @@
+job('myjob')
+ {
+  scm
+{
+  git
+  {
+    remote
+    {
+      github('mayanksinghal1/jenkins', 'https')
+      credentials('abc')
+      
+    
+     // branch('master')
+      //credentialsId( 'github')
+      //url ('https://github.com/mayanksinghal1/jenkins.git')
+  }
+  //withCredentials([string(credentialsId: 'abc')]) 
+  }
+}  
+ }
