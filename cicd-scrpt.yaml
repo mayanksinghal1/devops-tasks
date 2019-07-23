@@ -1,0 +1,74 @@
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  annotations:
+    pipeline.alpha.openshift.io/uses: '[{"name": "jboss", "namespace": "", "kind": "DeploymentConfig"}]'
+  creationTimestamp: '2018-10-11T00:55:27Z'
+  labels:
+    app: cicd-pipeline
+    name: cicd-pipeline
+  name: tasks-pipeline
+  namespace: devpipeline
+  resourceVersion: '3661218'
+  selfLink: >-
+    /apis/build.openshift.io/v1/namespaces/devpipeline/buildconfigs/tasks-pipeline
+  uid: 58280a12-ccf0-11e8-b0cb-06fff93624d4
+spec:
+  nodeSelector: {}
+  output: {}
+  postCommit: {}
+  resources: {}
+  runPolicy: Serial
+  source:
+    type: None
+  strategy:
+    jenkinsPipelineStrategy:
+      env:
+        - name: DEV_PROJECT
+          value: devpipeline
+        - name: STAGE_PROJECT
+          value: test
+      jenkinsfile: |
+        node {
+            def mvnHome
+            mvnHome = tool 'maven'
+            stage('Fetch Code') { 
+                 git changelog: false, credentialsId: 'b7552763e472555d9593ff49af979d3e7a879884', poll: false, url: 'http://10.129.4.164:3000/gogs/cicd-demo.git'
+            }
+            stage('Build') {
+                 echo "in Build"
+                 sh "'${mvnHome}/bin/mvn' -Dmaven.test.failure.ignore clean install"
+            }
+            
+            stage('Sonar') {
+               echo "in sonar"
+              sh "'${mvnHome}/bin/mvn' -X sonar:sonar -Dsonar.host.url=http://10.129.5.124:9000  -Dsonar.login=73c67f19dff039d46fc157c87e413e45f9c9db9e '-fpom.xml' '-Dsonar.projectKey=cicd' '-Dsonar.language=java' '-Dsonar.sources=src'"
+           }
+             stage('Nexus'){
+               echo "in Nexus"
+               sh "curl -v -u admin:admin123 --upload-file /var/lib/jenkins/jobs/devpipeline/jobs/devpipeline-tasks-pipeline/workspace/target/hello-1.0.war http://10.129.5.95:8081/repository/myapp/"
+           }
+           stage('Build Image') {
+               sh "rm -rf oc-build && mkdir -p oc-build/deployments"
+               sh "wget http://10.129.5.95:8081/repository/myapp/hello-1.0.war"
+               sh "cp /var/lib/jenkins/jobs/devpipeline/jobs/devpipeline-tasks-pipeline/workspace/hello-1.0.war oc-build/deployments/ROOT.war"
+               sh "oc delete bc,dc,svc,route -l app=jboss -n ${DEV_PROJECT}"
+               sh "oc new-build --name=jboss --image-stream=jboss-eap70-openshift:1.5 --binary=true --labels=app=test -n ${DEV_PROJECT} || true"
+               sh "oc start-build jboss --from-dir=oc-build --wait=true -n ${DEV_PROJECT}"
+           }
+            stage('Deploy to DEV') {
+               sh "oc new-app jboss:latest -n ${DEV_PROJECT}"
+               sh "oc expose svc/jboss -n ${DEV_PROJECT}" 
+           }
+           stage ('Deploy to STAGE') {
+                sh "oc tag ${DEV_PROJECT}/jboss:latest ${STAGE_PROJECT}/jboss:latest"
+                sh "oc delete bc,dc,svc,route -l app=jboss -n ${STAGE_PROJECT}"
+                sh "oc new-app jboss:latest -n ${STAGE_PROJECT}"
+                sh "oc expose svc/jboss -n ${STAGE_PROJECT}"
+            } 
+        }
+    type: JenkinsPipeline
+  successfulBuildsHistoryLimit: 5
+  triggers: []
+status:
+  lastVersion: 35
